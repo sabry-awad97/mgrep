@@ -58,6 +58,12 @@ impl Worklist {
         let mut jobs = self.jobs.lock().unwrap();
         jobs.pop()
     }
+
+    fn finalize(&self, num_workers: i32) {
+        for _ in 0..num_workers {
+            self.add(Job::new(PathBuf::new()));
+        }
+    }
 }
 
 struct SearchResult {
@@ -168,10 +174,7 @@ fn main() -> Result<(), SearchError> {
         if let Err(error) = discover_dirs(&worklist_clone, Path::new(&search_dir)) {
             eprintln!("Error discovering directories: {}", error);
         }
-        // Add sentinel jobs to signal the end
-        for _ in 0..num_workers {
-            worklist_clone.add(Job::new(PathBuf::new()));
-        }
+        worklist_clone.finalize(num_workers);
     });
 
     let mut worker_threads = Vec::new();
