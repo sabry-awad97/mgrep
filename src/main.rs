@@ -1,8 +1,8 @@
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use structopt::StructOpt;
 
 struct Job {
     path: PathBuf,
@@ -105,15 +105,19 @@ fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) {
     }
 }
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 3 {
-        println!("Usage: {} <search_term> <search_dir>", args[0]);
-        return;
-    }
+#[derive(StructOpt)]
+struct Cli {
+    #[structopt(help = "The search term")]
+    search_term: String,
+    #[structopt(help = "The directory to search in")]
+    search_dir: String,
+}
 
-    let search_term = args[1].clone();
-    let search_dir = args[2].clone();
+fn main() {
+    let args = Cli::from_args();
+
+    let search_term = args.search_term.clone();
+    let search_dir = args.search_dir.clone();
 
     let worklist = Arc::new(Worklist::new());
     let results = Arc::new(Mutex::new(Vec::new()));
