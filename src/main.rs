@@ -111,4 +111,47 @@ fn main() {
         println!("Usage: {} <search_term> <search_dir>", args[0]);
         return;
     }
+
+    let search_term = args[1].clone();
+    let search_dir = args[2].clone();
+
+    let worklist = Arc::new(Worklist::new());
+    let results = Arc::new(Mutex::new(Vec::new()));
+
+    let num_workers = 10;
+
+    let worklist_clone = Arc::clone(&worklist);
+    thread::spawn(move || {
+        discover_dirs(&worklist_clone, Path::new(&search_dir));
+        // Add sentinel jobs to signal the end
+        for _ in 0..num_workers {
+            worklist_clone.add(Job::new(PathBuf::new()));
+        }
+    });
+
+    let mut worker_threads = Vec::new();
+    for _ in 0..num_workers {
+        let worklist_clone = Arc::clone(&worklist);
+        let results_clone = Arc::clone(&results);
+        let search_term_clone = search_term.clone();
+        let thread = thread::spawn(move || {
+            let worker = Worker::new(search_term_clone, worklist_clone, results_clone);
+            worker.process_jobs();
+        });
+        worker_threads.push(thread);
+    }
+
+    for thread in worker_threads {
+        thread.join().unwrap();
+    }
+
+    let results = results.lock().unwrap();
+    for result in &*results {
+        println!(
+            "{}[{}]: {}",
+            result.path.display(),
+            result.line_number,
+            result.line
+        );
+    }
 }
