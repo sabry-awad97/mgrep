@@ -166,7 +166,7 @@ fn main() -> Result<(), SearchError> {
     let args = Cli::from_args();
 
     let search_term = args.search_term.clone();
-    let search_dir = args.search_dir.clone();
+    let search_dir = args.search_dir;
 
     let worklist = Arc::new(Worklist::new());
     let results = Arc::new(Mutex::new(Vec::new()));
