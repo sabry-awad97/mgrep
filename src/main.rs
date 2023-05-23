@@ -152,10 +152,14 @@ fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) -> Result<(), SearchError>
 
 #[derive(StructOpt)]
 struct Cli {
-    #[structopt(help = "The search term")]
+    #[structopt(required = true, help = "The search term")]
     search_term: String,
-    #[structopt(help = "The directory to search in")]
-    search_dir: String,
+    #[structopt(
+        help = "The directory to search in",
+        required = true,
+        parse(from_os_str)
+    )]
+    search_dir: PathBuf,
 }
 
 fn main() -> Result<(), SearchError> {
@@ -171,7 +175,7 @@ fn main() -> Result<(), SearchError> {
 
     let worklist_clone = Arc::clone(&worklist);
     thread::spawn(move || {
-        if let Err(error) = discover_dirs(&worklist_clone, Path::new(&search_dir)) {
+        if let Err(error) = discover_dirs(&worklist_clone, &search_dir) {
             eprintln!("Error discovering directories: {}", error);
         }
         worklist_clone.finalize(num_workers);
