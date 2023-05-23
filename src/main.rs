@@ -134,14 +134,12 @@ impl Worker {
 
 fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) -> Result<(), SearchError> {
     if let Ok(entries) = fs::read_dir(dir_path) {
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.is_dir() {
-                    discover_dirs(wl, &path)?;
-                } else {
-                    wl.add(Job::new(path));
-                }
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                discover_dirs(wl, &path)?;
+            } else {
+                wl.add(Job::new(path));
             }
         }
         Ok(())
