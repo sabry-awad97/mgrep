@@ -1,8 +1,32 @@
+use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use structopt::StructOpt;
+
+#[derive(Debug)]
+enum SearchError {
+    IoError(std::io::Error),
+    InvalidSearchDir,
+}
+
+impl From<std::io::Error> for SearchError {
+    fn from(error: std::io::Error) -> Self {
+        SearchError::IoError(error)
+    }
+}
+
+impl std::fmt::Display for SearchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SearchError::IoError(error) => write!(f, "IO error: {}", error),
+            SearchError::InvalidSearchDir => write!(f, "Invalid search directory"),
+        }
+    }
+}
+
+impl Error for SearchError {}
 
 struct Job {
     path: PathBuf,
@@ -36,7 +60,7 @@ impl Worklist {
     }
 }
 
-struct Result {
+struct SearchResult {
     path: PathBuf,
     line_number: usize,
     line: String,
@@ -45,11 +69,15 @@ struct Result {
 struct Worker {
     search_term: String,
     worklist: Arc<Worklist>,
-    results: Arc<Mutex<Vec<Result>>>,
+    results: Arc<Mutex<Vec<SearchResult>>>,
 }
 
 impl Worker {
-    fn new(search_term: String, worklist: Arc<Worklist>, results: Arc<Mutex<Vec<Result>>>) -> Self {
+    fn new(
+        search_term: String,
+        worklist: Arc<Worklist>,
+        results: Arc<Mutex<Vec<SearchResult>>>,
+    ) -> Self {
         Worker {
             search_term,
             worklist,
@@ -57,13 +85,13 @@ impl Worker {
         }
     }
 
-    fn find_in_file(&self, path: &Path) -> Vec<Result> {
-        let file_contents = fs::read_to_string(path).unwrap();
+    fn find_in_file(&self, path: &Path) -> Result<Vec<SearchResult>, SearchError> {
+        let file_contents = fs::read_to_string(path)?;
         let mut matching_lines = Vec::new();
 
         for (line_number, line) in file_contents.lines().enumerate() {
             if line.contains(&self.search_term) {
-                matching_lines.push(Result {
+                matching_lines.push(SearchResult {
                     path: path.to_path_buf(),
                     line_number: line_number + 1,
                     line: line.to_string(),
@@ -71,16 +99,22 @@ impl Worker {
             }
         }
 
-        matching_lines
+        Ok(matching_lines)
     }
 
     fn process_jobs(&self) {
         loop {
             let job = self.worklist.next();
             if let Some(job) = job {
-                let results = self.find_in_file(&job.path);
-                let mut result_vec = self.results.lock().unwrap();
-                result_vec.extend(results);
+                match self.find_in_file(&job.path) {
+                    Ok(results) => {
+                        let mut result_vec = self.results.lock().unwrap();
+                        result_vec.extend(results);
+                    }
+                    Err(error) => {
+                        eprintln!("Error processing job: {}", error);
+                    }
+                }
             } else {
                 break;
             }
@@ -88,20 +122,21 @@ impl Worker {
     }
 }
 
-fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) {
+fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) -> Result<(), SearchError> {
     if let Ok(entries) = fs::read_dir(dir_path) {
         for entry in entries {
             if let Ok(entry) = entry {
                 let path = entry.path();
                 if path.is_dir() {
-                    discover_dirs(wl, &path);
+                    discover_dirs(wl, &path)?;
                 } else {
                     wl.add(Job::new(path));
                 }
             }
         }
+        Ok(())
     } else {
-        println!("Error reading directory");
+        Err(SearchError::InvalidSearchDir)
     }
 }
 
@@ -113,7 +148,7 @@ struct Cli {
     search_dir: String,
 }
 
-fn main() {
+fn main() -> Result<(), SearchError> {
     let args = Cli::from_args();
 
     let search_term = args.search_term.clone();
@@ -126,7 +161,9 @@ fn main() {
 
     let worklist_clone = Arc::clone(&worklist);
     thread::spawn(move || {
-        discover_dirs(&worklist_clone, Path::new(&search_dir));
+        if let Err(error) = discover_dirs(&worklist_clone, Path::new(&search_dir)) {
+            eprintln!("Error discovering directories: {}", error);
+        }
         // Add sentinel jobs to signal the end
         for _ in 0..num_workers {
             worklist_clone.add(Job::new(PathBuf::new()));
@@ -158,4 +195,6 @@ fn main() {
             result.line
         );
     }
+
+    Ok(())
 }
