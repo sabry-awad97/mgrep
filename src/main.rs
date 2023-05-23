@@ -88,6 +88,23 @@ impl Worker {
     }
 }
 
+fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) {
+    if let Ok(entries) = fs::read_dir(dir_path) {
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+                if path.is_dir() {
+                    discover_dirs(wl, &path);
+                } else {
+                    wl.add(Job::new(path));
+                }
+            }
+        }
+    } else {
+        println!("Error reading directory");
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
