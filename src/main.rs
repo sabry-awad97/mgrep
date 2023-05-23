@@ -86,6 +86,10 @@ impl Worker {
     }
 
     fn find_in_file(&self, path: &Path) -> Result<Vec<SearchResult>, SearchError> {
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+
         let file_contents = fs::read_to_string(path)?;
         let mut matching_lines = Vec::new();
 
