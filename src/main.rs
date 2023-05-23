@@ -36,6 +36,58 @@ impl Worklist {
     }
 }
 
+struct Result {
+    path: PathBuf,
+    line_number: usize,
+    line: String,
+}
+
+struct Worker {
+    search_term: String,
+    worklist: Arc<Worklist>,
+    results: Arc<Mutex<Vec<Result>>>,
+}
+
+impl Worker {
+    fn new(search_term: String, worklist: Arc<Worklist>, results: Arc<Mutex<Vec<Result>>>) -> Self {
+        Worker {
+            search_term,
+            worklist,
+            results,
+        }
+    }
+
+    fn find_in_file(&self, path: &Path) -> Vec<Result> {
+        let file_contents = fs::read_to_string(path).unwrap();
+        let mut matching_lines = Vec::new();
+
+        for (line_number, line) in file_contents.lines().enumerate() {
+            if line.contains(&self.search_term) {
+                matching_lines.push(Result {
+                    path: path.to_path_buf(),
+                    line_number: line_number + 1,
+                    line: line.to_string(),
+                });
+            }
+        }
+
+        matching_lines
+    }
+
+    fn process_jobs(&self) {
+        loop {
+            let job = self.worklist.next();
+            if let Some(job) = job {
+                let results = self.find_in_file(&job.path);
+                let mut result_vec = self.results.lock().unwrap();
+                result_vec.extend(results);
+            } else {
+                break;
+            }
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
