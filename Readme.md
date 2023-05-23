@@ -95,8 +95,8 @@ The program utilizes multi-threading to parallelize the search process. The numb
 The program will display the search results in the following format:
 
 ```toml
-</path/to/file>[line_number]: <matched_line>
-</path/to/another/file>[line_number]: <matched_line>
+/path/to/file[line_number]: matched_line
+/path/to/another/file[line_number]: matched_line
 ```
 
 Each line contains the file path, line number, and the actual line with the search term.
