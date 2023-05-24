@@ -1,10 +1,9 @@
-use async_recursion::async_recursion;
 use std::error::Error;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::thread;
 use structopt::StructOpt;
-use tokio::fs;
-
 #[derive(Debug)]
 enum SearchError {
     IoError(std::io::Error),
@@ -89,12 +88,12 @@ impl Worker {
         }
     }
 
-    async fn find_in_file(&self, path: &Path) -> Result<Vec<SearchResult>, SearchError> {
+    fn find_in_file(&self, path: &Path) -> Result<Vec<SearchResult>, SearchError> {
         if !path.exists() {
             return Ok(Vec::new());
         }
 
-        let file_contents = fs::read_to_string(path).await?;
+        let file_contents = fs::read_to_string(path)?;
         let mut matching_lines = Vec::new();
 
         for (line_number, line) in file_contents.lines().enumerate() {
@@ -110,11 +109,11 @@ impl Worker {
         Ok(matching_lines)
     }
 
-    async fn process_jobs(&self) {
+    fn process_jobs(&self) {
         loop {
             let job = self.worklist.next();
             if let Some(job) = job {
-                match self.find_in_file(&job.path).await {
+                match self.find_in_file(&job.path) {
                     Ok(results) => {
                         let mut result_vec = self.results.lock().unwrap();
                         result_vec.extend(results);
@@ -130,27 +129,15 @@ impl Worker {
     }
 }
 
-#[async_recursion]
-async fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) -> Result<(), SearchError> {
-    if let Ok(mut entries) = fs::read_dir(dir_path).await {
-        let mut tasks = Vec::new();
-        while let Some(entry) = entries.next_entry().await? {
+fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) -> Result<(), SearchError> {
+    if let Ok(entries) = fs::read_dir(dir_path) {
+        for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                let task = async {
-                    let path = Arc::new(path);
-                    let wl_clone = Arc::clone(wl);
-                    let path_clone = Arc::new(path.clone());
-                    discover_dirs(&wl_clone, &path_clone).await?;
-                    Ok::<(), SearchError>(())
-                };
-                tasks.push(task);
+                discover_dirs(wl, &path)?;
             } else {
                 wl.add(Job::new(path));
             }
-        }
-        for task in tasks {
-            task.await?;
         }
         Ok(())
     } else {
@@ -170,8 +157,7 @@ struct Cli {
     search_dir: PathBuf,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let args = Cli::from_args();
 
     let search_term = args.search_term.clone();
@@ -183,28 +169,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let num_workers = 10;
 
     let worklist_clone = Arc::clone(&worklist);
-    tokio::task::spawn(async move {
-        if let Err(error) = discover_dirs(&worklist_clone, &search_dir).await {
+    thread::spawn(move || {
+        if let Err(error) = discover_dirs(&worklist_clone, &search_dir) {
             eprintln!("Error discovering directories: {}", error);
         }
         worklist_clone.finalize();
-    })
-    .await?;
+    });
 
-    let mut worker_handles = Vec::new();
+    let mut worker_threads = Vec::new();
+
     for _ in 0..num_workers {
         let worklist_clone = Arc::clone(&worklist);
         let results_clone = Arc::clone(&results);
         let search_term_clone = search_term.clone();
-        let handle = tokio::spawn(async move {
+        let thread = thread::spawn(move || {
             let worker = Worker::new(search_term_clone, worklist_clone, results_clone);
-            worker.process_jobs().await;
+            worker.process_jobs();
         });
-        worker_handles.push(handle);
+        worker_threads.push(thread);
     }
 
-    for handle in worker_handles {
-        handle.await?;
+    for thread in worker_threads {
+        thread.join().unwrap();
     }
 
     let results = results.lock().unwrap();
