@@ -1,6 +1,7 @@
 use rayon::ThreadPoolBuilder;
 use std::error::Error;
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -101,10 +102,12 @@ impl Worker {
             return Ok(Vec::new());
         }
 
-        let file_contents = fs::read_to_string(path)?;
+        let file = fs::File::open(path)?;
+        let reader = BufReader::new(file);
         let mut matching_lines = Vec::new();
 
-        for (line_number, line) in file_contents.lines().enumerate() {
+        for (line_number, line) in reader.lines().enumerate() {
+            let line = line?;
             if line.contains(&self.search_term) {
                 matching_lines.push(SearchResult {
                     path: path.to_path_buf(),
