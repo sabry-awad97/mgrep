@@ -92,15 +92,15 @@ struct SearchResult {
     line: String,
 }
 
-/// Represents a worker responsible for searching for a term in files.
+/// Represents a worker responsible for searching a worklist of files for a given search term.
 struct Worker {
-    /// The search term to look for in files
+    /// The search term to look for in files.
     search_term: String,
-    /// A reference to the shared worklist
+    /// A reference to the shared worklist.
     worklist: Arc<Worklist>,
-    /// A thread-safe list of search results
+    /// A thread-safe list of search results.
     results: Arc<Mutex<Vec<SearchResult>>>,
-    /// The number of jobs to process in a single chunk
+    /// The number of jobs to process in a single chunk.
     chunk_size: usize,
 }
 
@@ -124,52 +124,70 @@ impl Worker {
     /// Returns a vector of matching search results.
     fn find_in_file(&self, path: &Path) -> Result<Vec<SearchResult>, SearchError> {
         if !path.exists() {
+            // If the file doesn't exist, return an empty vector.
             return Ok(Vec::new());
         }
 
-        // Open the file for reading
+        // Attempt to open the file, and propagate any I/O errors.
         let file = fs::File::open(path)?;
 
-        // Create a buffered reader for efficient reading
+        // Create a buffered reader for efficient reading.
         let reader = BufReader::new(file);
 
+        // Stores the search results found in the file.
         let mut matching_lines = Vec::new();
 
+        // Read each line from the file and keep track of its line number.
         for (line_number, line) in reader.lines().enumerate() {
-            // Read the line from the reader
+            // Unwrap the line from the result, propagating any I/O errors.
             let line = line?;
+
+            // Check if the line contains the search term.
             if line.contains(&self.search_term) {
                 matching_lines.push(SearchResult {
                     path: path.to_path_buf(),
+                    // Add 1 to convert zero-based index to one-based line number.
                     line_number: line_number + 1,
                     line: line.to_string(),
                 });
             }
         }
 
+        // Return the vector of matching search results.
         Ok(matching_lines)
     }
 
     /// Processes the jobs in chunks until all jobs are completed.
     fn process_jobs(&self) {
         loop {
-            // Get a chunk of jobs to process
+            // Get a chunk of jobs to process from the worklist.
             let jobs = self.worklist.get_chunk(self.chunk_size);
+
             if jobs.is_empty() {
+                // If there are no jobs left, exit the loop.
                 break;
             }
 
             let results = jobs
-                .par_iter() // Process jobs in parallel using rayon
+                // Process jobs in parallel using Rayon, a parallel programming library.
+                .par_iter()
+                // Filter out the `None` values, leaving only successful search results.
                 .filter_map(|job| {
+                    // Call the `find_in_file` function to search for the search term in the file.
+                    // Any I/O errors encountered during the search are logged to the standard error stream.
+                    // The `ok` function transforms the `Result` to an `Option`, discarding the error.
                     self.find_in_file(&job.path)
                         .map_err(|error| eprintln!("Error processing job: {}", error))
                         .ok()
                 })
+                // Flatten the resulting nested iterators into a single iterator of search results.
                 .flatten()
-                .collect::<Vec<_>>();
+                .collect::<Vec<_>>(); // Collect the search results into a vector.
 
+            // Obtain a lock on the results vector to ensure exclusive access.
             let mut result_vec = self.results.lock().unwrap();
+
+            // Extend the results vector with the newly found search results.
             result_vec.extend(results);
         }
     }
@@ -177,19 +195,26 @@ impl Worker {
 
 /// Recursively discovers directories and files within a given directory and adds jobs to the worklist.
 fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) -> Result<(), SearchError> {
+    // Attempt to read the directory entries within the specified directory.
     if let Ok(entries) = fs::read_dir(dir_path) {
+        // Iterate over each entry in the directory.
         for entry in entries.flatten() {
             let path = entry.path();
+
+            // Check if the entry is a directory.
             if path.is_dir() {
-                // Recursively explore subdirectories
+                // Recursively explore subdirectories by calling `discover_dirs` function again.
                 discover_dirs(wl, &path)?;
             } else {
-                // Add file as a job to the worklist
+                // Add the file as a job to the worklist.
                 wl.add(Job::new(path));
             }
         }
+
+        // Return Ok to indicate successful discovery of directories and files.
         Ok(())
     } else {
+        // Return an error if reading the directory failed.
         Err(SearchError::InvalidSearchDir)
     }
 }
@@ -207,17 +232,21 @@ struct Cli {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // Parse command-line arguments using `Cli::from_args()`
     let args = Cli::from_args();
 
+    // Clone the search term and assign the search directory
     let search_term = args.search_term.clone();
     let search_dir = args.search_dir;
+
+    // Set the chunk size and determine the number of worker threads
     let chunk_size = 10;
     let num_workers = num_cpus::get();
 
-    // Create a shared worklist
+    // Create a shared worklist using `Arc`
     let worklist = Arc::new(Worklist::new());
 
-    // Create a shared results list
+    // Create a shared results list using `Arc` and `Mutex`
     let results = Arc::new(Mutex::new(Vec::new()));
 
     // Spawn a separate thread to discover directories and add jobs to the worklist
@@ -229,15 +258,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         worklist_clone.finalize();
     });
 
-    // Create a thread pool to process jobs in parallel
+    // Create a thread pool using `ThreadPoolBuilder` to process jobs in parallel
     let thread_pool = ThreadPoolBuilder::new().num_threads(num_workers).build()?;
 
-    // Process jobs using worker threads
+    // Process jobs using worker threads within a thread pool scope
     thread_pool.scope(|s| {
         (0..num_workers).into_par_iter().for_each(|_| {
+            // Clone the necessary variables for each worker thread
             let worklist_clone = Arc::clone(&worklist);
             let results_clone = Arc::clone(&results);
             let search_term_clone = search_term.clone();
+
+            // Spawn a thread for each worker and execute the `process_jobs` method
             s.spawn(|_| {
                 let worker =
                     Worker::new(search_term_clone, worklist_clone, results_clone, chunk_size);
@@ -246,7 +278,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
     });
 
-    // Print the search results
+    // Print the search results by locking the results list and iterating over the results
     let results = results.lock().unwrap();
     for result in &*results {
         println!(
@@ -257,5 +289,5 @@ fn main() -> Result<(), Box<dyn Error>> {
         );
     }
 
-    Ok(())
+    Ok(()) // Return `Ok` to indicate successful execution of the `main` function
 }
