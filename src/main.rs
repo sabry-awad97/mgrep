@@ -1,3 +1,4 @@
+use rayon::ThreadPoolBuilder;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -155,6 +156,9 @@ struct Cli {
         parse(from_os_str)
     )]
     search_dir: PathBuf,
+
+    #[structopt(required = true, help = "The search term", default_value = "10")]
+    num_workers: usize,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -166,8 +170,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let worklist = Arc::new(Worklist::new());
     let results = Arc::new(Mutex::new(Vec::new()));
 
-    let num_workers = 10;
-
     let worklist_clone = Arc::clone(&worklist);
     thread::spawn(move || {
         if let Err(error) = discover_dirs(&worklist_clone, &search_dir) {
@@ -176,22 +178,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         worklist_clone.finalize();
     });
 
-    let mut worker_threads = Vec::new();
+    let thread_pool = ThreadPoolBuilder::new()
+        .num_threads(args.num_workers)
+        .build()?;
 
-    for _ in 0..num_workers {
-        let worklist_clone = Arc::clone(&worklist);
-        let results_clone = Arc::clone(&results);
-        let search_term_clone = search_term.clone();
-        let thread = thread::spawn(move || {
-            let worker = Worker::new(search_term_clone, worklist_clone, results_clone);
-            worker.process_jobs();
-        });
-        worker_threads.push(thread);
-    }
-
-    for thread in worker_threads {
-        thread.join().unwrap();
-    }
+    thread_pool.scope(|s| {
+        for _ in 0..args.num_workers {
+            let worklist_clone = Arc::clone(&worklist);
+            let results_clone = Arc::clone(&results);
+            let search_term_clone = search_term.clone();
+            s.spawn(|_| {
+                let worker = Worker::new(search_term_clone, worklist_clone, results_clone);
+                worker.process_jobs();
+            });
+        }
+    });
 
     let results = results.lock().unwrap();
     for result in &*results {
