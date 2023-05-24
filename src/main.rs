@@ -292,5 +292,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         );
     }
 
-    Ok(()) // Return `Ok` to indicate successful execution of the `main` function
+    // Return `Ok` to indicate successful execution of the `main` function
+    Ok(())
 }
