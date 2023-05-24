@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use std::error::Error;
 use std::fs;
@@ -122,21 +123,23 @@ impl Worker {
 
     fn process_jobs(&self) {
         loop {
-            let chunk = self.worklist.get_chunk(self.chunk_size);
-            if chunk.is_empty() {
+            let jobs = self.worklist.get_chunk(self.chunk_size);
+            if jobs.is_empty() {
                 break;
             }
-            for job in chunk {
-                match self.find_in_file(&job.path) {
-                    Ok(results) => {
-                        let mut result_vec = self.results.lock().unwrap();
-                        result_vec.extend(results);
-                    }
-                    Err(error) => {
-                        eprintln!("Error processing job: {}", error);
-                    }
-                }
-            }
+
+            let results = jobs
+                .par_iter()
+                .filter_map(|job| {
+                    self.find_in_file(&job.path)
+                        .map_err(|error| eprintln!("Error processing job: {}", error))
+                        .ok()
+                })
+                .flatten()
+                .collect::<Vec<_>>();
+
+            let mut result_vec = self.results.lock().unwrap();
+            result_vec.extend(results);
         }
     }
 }
