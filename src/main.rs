@@ -17,6 +17,7 @@ enum SearchError {
 }
 
 impl From<std::io::Error> for SearchError {
+    // Convert std::io::Error to SearchError
     fn from(error: std::io::Error) -> Self {
         SearchError::IoError(error)
     }
@@ -25,13 +26,15 @@ impl From<std::io::Error> for SearchError {
 impl std::fmt::Display for SearchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            // Format the IO error with a custom message
             SearchError::IoError(error) => write!(f, "IO error: {}", error),
+            // Provide a custom message for the invalid search directory error
             SearchError::InvalidSearchDir => write!(f, "Invalid search directory"),
         }
     }
 }
 
-impl Error for SearchError {}
+impl std::error::Error for SearchError {}
 
 /// Represents a job to search for a specific term in a file.
 struct Job {
