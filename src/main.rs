@@ -212,9 +212,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let search_term = args.search_term.clone();
     let search_dir = args.search_dir;
     let chunk_size = 10;
-    let num_workers = 10;
+    let num_workers = num_cpus::get();
 
+    // Create a shared worklist
     let worklist = Arc::new(Worklist::new());
+
+    // Create a shared results list
     let results = Arc::new(Mutex::new(Vec::new()));
 
     // Spawn a separate thread to discover directories and add jobs to the worklist
@@ -231,7 +234,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Process jobs using worker threads
     thread_pool.scope(|s| {
-        for _ in 0..num_workers {
+        (0..num_workers).into_par_iter().for_each(|_| {
             let worklist_clone = Arc::clone(&worklist);
             let results_clone = Arc::clone(&results);
             let search_term_clone = search_term.clone();
@@ -240,7 +243,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     Worker::new(search_term_clone, worklist_clone, results_clone, chunk_size);
                 worker.process_jobs();
             });
-        }
+        })
     });
 
     // Print the search results
