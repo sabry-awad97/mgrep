@@ -157,7 +157,12 @@ struct Cli {
     )]
     search_dir: PathBuf,
 
-    #[structopt(required = true, help = "The search term", default_value = "10")]
+    #[structopt(
+        short,
+        long,
+        help = "The number of worker threads",
+        default_value = "10"
+    )]
     num_workers: usize,
 }
 
