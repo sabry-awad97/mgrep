@@ -59,10 +59,8 @@ impl Worklist {
         jobs.pop()
     }
 
-    fn finalize(&self, num_workers: i32) {
-        for _ in 0..num_workers {
-            self.add(Job::new(PathBuf::new()));
-        }
+    fn finalize(&self) {
+        self.add(Job::new(PathBuf::new()));
     }
 }
 
@@ -176,7 +174,7 @@ fn main() -> Result<(), SearchError> {
         if let Err(error) = discover_dirs(&worklist_clone, &search_dir) {
             eprintln!("Error discovering directories: {}", error);
         }
-        worklist_clone.finalize(num_workers);
+        worklist_clone.finalize();
     });
 
     let mut worker_threads = Vec::new();
