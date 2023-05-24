@@ -54,9 +54,13 @@ impl Worklist {
         jobs.push(job);
     }
 
-    fn next(&self) -> Option<Job> {
+    fn get_chunk(&self, chunk_size: usize) -> Vec<Job> {
         let mut jobs = self.jobs.lock().unwrap();
-        jobs.pop()
+        let length = jobs.len();
+        let chunk = jobs
+            .splice(0..chunk_size.min(length), vec![])
+            .collect::<Vec<_>>();
+        chunk
     }
 
     fn finalize(&self) {
@@ -74,6 +78,7 @@ struct Worker {
     search_term: String,
     worklist: Arc<Worklist>,
     results: Arc<Mutex<Vec<SearchResult>>>,
+    chunk_size: usize,
 }
 
 impl Worker {
@@ -81,11 +86,13 @@ impl Worker {
         search_term: String,
         worklist: Arc<Worklist>,
         results: Arc<Mutex<Vec<SearchResult>>>,
+        chunk_size: usize,
     ) -> Self {
-        Worker {
+        Self {
             search_term,
             worklist,
             results,
+            chunk_size,
         }
     }
 
@@ -112,8 +119,11 @@ impl Worker {
 
     fn process_jobs(&self) {
         loop {
-            let job = self.worklist.next();
-            if let Some(job) = job {
+            let chunk = self.worklist.get_chunk(self.chunk_size);
+            if chunk.is_empty() {
+                break;
+            }
+            for job in chunk {
                 match self.find_in_file(&job.path) {
                     Ok(results) => {
                         let mut result_vec = self.results.lock().unwrap();
@@ -123,8 +133,6 @@ impl Worker {
                         eprintln!("Error processing job: {}", error);
                     }
                 }
-            } else {
-                break;
             }
         }
     }
@@ -171,6 +179,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let search_term = args.search_term.clone();
     let search_dir = args.search_dir;
+    let chunk_size = 10;
 
     let worklist = Arc::new(Worklist::new());
     let results = Arc::new(Mutex::new(Vec::new()));
@@ -193,7 +202,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             let results_clone = Arc::clone(&results);
             let search_term_clone = search_term.clone();
             s.spawn(|_| {
-                let worker = Worker::new(search_term_clone, worklist_clone, results_clone);
+                let worker =
+                    Worker::new(search_term_clone, worklist_clone, results_clone, chunk_size);
                 worker.process_jobs();
             });
         }
