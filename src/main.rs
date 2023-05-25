@@ -1,5 +1,5 @@
 use cli::Cli;
-use crossbeam::channel::{unbounded, Receiver, Sender}; // Import for creating communication channels between threads
+use job::Job;
 use rayon::prelude::*; // Import the necessary traits for parallel processing
 use std::error::Error; // Import the Error trait for error handling
 use std::fs; // Import the fs module for file system operations
@@ -8,8 +8,11 @@ use std::path::{Path, PathBuf}; // Import the necessary structs for working with
 use std::sync::{Arc, Mutex}; // Import the necessary synchronization primitives
 use std::thread; // Import the thread module for multi-threading
 use structopt::StructOpt; // Import the StructOpt trait for command-line argument parsing
+use worklist::Worklist;
 
 mod cli;
+mod job;
+mod worklist;
 
 #[derive(Debug)]
 enum SearchError {
@@ -38,50 +41,6 @@ impl std::fmt::Display for SearchError {
 }
 
 impl std::error::Error for SearchError {}
-
-/// Represents a job to search for a specific term in a file.
-struct Job {
-    /// The path of the file to search
-    path: PathBuf,
-}
-
-impl Job {
-    /// Creates a new job with the specified file path.
-    fn new(path: PathBuf) -> Self {
-        Self { path }
-    }
-}
-
-/// Represents a collection of file search jobs.
-struct Worklist {
-    sender: Sender<Option<Job>>,
-    receiver: Receiver<Option<Job>>,
-}
-
-impl Worklist {
-    /// Creates a new empty worklist.
-    fn new() -> Self {
-        let (sender, receiver) = unbounded();
-        Self { sender, receiver }
-    }
-
-    /// Adds a new job to the worklist.
-    fn add(&self, job: Job) {
-        self.sender.send(Some(job)).unwrap();
-    }
-
-    /// Retrieves the next job from the worklist.
-    fn next(&self) -> Option<Job> {
-        self.receiver.recv().unwrap()
-    }
-
-    /// Marks the end of jobs by adding a special empty jobs to the worklist.
-    fn finalize(&self, num_workers: usize) {
-        for _ in 0..num_workers {
-            self.sender.send(None).unwrap();
-        }
-    }
-}
 
 /// Represents a search result for a specific line in a file.
 struct SearchResult {
@@ -159,7 +118,7 @@ impl FileSearchWorker {
         loop {
             let job = self.worklist.next();
             if let Some(job) = job {
-                match self.find_in_file(job.path) {
+                match self.find_in_file(job.into_inner()) {
                     Ok(results) => {
                         let mut result_vec = self.results.lock().unwrap();
                         result_vec.extend(results);
