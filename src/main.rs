@@ -1,4 +1,4 @@
-use crossbeam_channel::{unbounded, Receiver, Sender}; // Import for creating communication channels between threads
+use crossbeam::channel::{unbounded, Receiver, Sender}; // Import for creating communication channels between threads
 use rayon::prelude::*; // Import the necessary traits for parallel processing
 use std::error::Error; // Import the Error trait for error handling
 use std::fs; // Import the fs module for file system operations
@@ -74,9 +74,9 @@ impl Worklist {
 
     /// Marks the end of jobs by adding a special empty jobs to the worklist.
     fn finalize(&self, num_workers: usize) {
-        (0..num_workers)
-            .into_par_iter()
-            .for_each(|_| self.sender.send(None).unwrap())
+        for _ in 0..num_workers {
+            self.sender.send(None).unwrap();
+        }
     }
 }
 
@@ -91,7 +91,7 @@ struct SearchResult {
 }
 
 /// Represents a worker responsible for searching a worklist of files for a given search term.
-struct Worker {
+struct FileSearchWorker {
     /// The search term to look for in files.
     search_term: String,
     /// A reference to the shared worklist.
@@ -100,7 +100,7 @@ struct Worker {
     results: Arc<Mutex<Vec<SearchResult>>>,
 }
 
-impl Worker {
+impl FileSearchWorker {
     /// Creates a new worker with the specified search term, worklist, results.
     fn new(
         search_term: String,
@@ -237,7 +237,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let worklist_clone = Arc::clone(&worklist);
         let results_clone = Arc::clone(&results);
         let search_term_clone = args.search_term.clone();
-        let worker = Worker::new(search_term_clone, worklist_clone, results_clone);
+        let worker = FileSearchWorker::new(search_term_clone, worklist_clone, results_clone);
         worker.process_jobs();
     });
 
