@@ -214,10 +214,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Parse command-line arguments using `Cli::from_args()`
     let args = Cli::from_args();
 
-    // Clone the search term and assign the search directory
-    let search_term = args.search_term.clone();
-    let search_dir = args.search_dir;
-
     // Determine the number of worker threads
     let num_workers = num_cpus::get();
 
@@ -230,7 +226,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Spawn a separate thread to discover directories and add jobs to the worklist
     let worklist_clone = Arc::clone(&worklist);
     thread::spawn(move || {
-        if let Err(error) = discover_dirs(&worklist_clone, &search_dir) {
+        if let Err(error) = discover_dirs(&worklist_clone, &args.search_dir) {
             eprintln!("Error discovering directories: {}", error);
         }
         worklist_clone.finalize(num_workers);
@@ -245,7 +241,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             // Clone the necessary variables for each worker thread
             let worklist_clone = Arc::clone(&worklist);
             let results_clone = Arc::clone(&results);
-            let search_term_clone = search_term.clone();
+            let search_term_clone = args.search_term.clone();
 
             // Spawn a thread for each worker and execute the `process_jobs` method
             s.spawn(move |_| {
