@@ -3,101 +3,21 @@ use error::SearchError;
 use job::Job;
 
 use rayon::prelude::*;
-use result::SearchResult;
 use std::error::Error;
 use std::fs;
-use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use structopt::StructOpt;
+use worker::Worker;
 use worklist::Worklist;
 
 mod cli;
 mod error;
 mod job;
 mod result;
+mod worker;
 mod worklist;
-
-/// Represents a worker responsible for searching a worklist of files for a given search term.
-struct FileSearchWorker {
-    /// The search term to look for in files.
-    search_term: String,
-    /// A reference to the shared worklist.
-    worklist: Arc<Worklist>,
-    /// A thread-safe list of search results.
-    results: Arc<Mutex<Vec<SearchResult>>>,
-}
-
-impl FileSearchWorker {
-    /// Creates a new worker with the specified search term, worklist, results.
-    fn new(
-        search_term: String,
-        worklist: Arc<Worklist>,
-        results: Arc<Mutex<Vec<SearchResult>>>,
-    ) -> Self {
-        Self {
-            search_term,
-            worklist,
-            results,
-        }
-    }
-
-    /// Searches for the search term in the given file.
-    /// Returns a vector of matching search results.
-    fn find_in_file(&self, path: PathBuf) -> Result<Vec<SearchResult>, SearchError> {
-        if !path.exists() {
-            // If the file doesn't exist, return an empty vector.
-            return Ok(Vec::new());
-        }
-
-        // Attempt to open the file, and propagate any I/O errors.
-        let file = fs::File::open(&path)?;
-
-        // Create a buffered reader for efficient reading.
-        let reader = BufReader::with_capacity(8192, file);
-
-        // Stores the search results found in the file.
-        let mut matching_lines = Vec::new();
-
-        // Read each line from the file and keep track of its line number.
-        for (line_number, line) in reader.lines().enumerate() {
-            // Unwrap the line from the result, propagating any I/O errors.
-            let line = line?;
-
-            // Add 1 to convert zero-based index to one-based line number.
-            let line_number = line_number + 1;
-
-            // Check if the line contains the search term.
-            if line.contains(&self.search_term) {
-                matching_lines.push(SearchResult::new(path.clone(), line_number, line));
-            }
-        }
-
-        // Return the vector of matching search results.
-        Ok(matching_lines)
-    }
-
-    /// Processes the jobs until all jobs are completed.
-    fn process_jobs(&self) {
-        loop {
-            let job = self.worklist.next();
-            if let Some(job) = job {
-                match self.find_in_file(job.into_inner()) {
-                    Ok(results) => {
-                        let mut result_vec = self.results.lock().unwrap();
-                        result_vec.extend(results);
-                    }
-                    Err(error) => {
-                        eprintln!("Error processing job: {}", error);
-                    }
-                }
-            } else {
-                break;
-            }
-        }
-    }
-}
 
 /// Recursively discovers directories and files within a given directory and adds jobs to the worklist.
 fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) -> Result<(), SearchError> {
@@ -164,8 +84,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Clone the necessary variables for each worker thread
         let worklist_clone = Arc::clone(&worklist);
         let results_clone = Arc::clone(&results);
-        let worker =
-            FileSearchWorker::new(search_term_ref.to_string(), worklist_clone, results_clone);
+        let worker = Worker::new(search_term_ref.to_string(), worklist_clone, results_clone);
         worker.process_jobs();
     });
 
