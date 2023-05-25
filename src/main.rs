@@ -1,3 +1,4 @@
+use cli::Cli;
 use crossbeam::channel::{unbounded, Receiver, Sender}; // Import for creating communication channels between threads
 use rayon::prelude::*; // Import the necessary traits for parallel processing
 use std::error::Error; // Import the Error trait for error handling
@@ -7,6 +8,8 @@ use std::path::{Path, PathBuf}; // Import the necessary structs for working with
 use std::sync::{Arc, Mutex}; // Import the necessary synchronization primitives
 use std::thread; // Import the thread module for multi-threading
 use structopt::StructOpt; // Import the StructOpt trait for command-line argument parsing
+
+mod cli;
 
 #[derive(Debug)]
 enum SearchError {
@@ -204,17 +207,6 @@ fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) -> Result<(), SearchError>
                 }
             })
         })
-}
-
-/// Represents the command-line arguments for the program.
-#[derive(StructOpt)]
-struct Cli {
-    /// The search term
-    search_term: String,
-
-    /// The directory to search in
-    #[structopt(parse(from_os_str))]
-    search_dir: PathBuf,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
