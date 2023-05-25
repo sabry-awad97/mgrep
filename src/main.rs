@@ -13,7 +13,7 @@ enum SearchError {
     /// Represents an IO error
     IoError(std::io::Error),
     /// Represents an invalid search directory
-    InvalidSearchDir,
+    InvalidDir(String),
 }
 
 impl From<std::io::Error> for SearchError {
@@ -29,7 +29,7 @@ impl std::fmt::Display for SearchError {
             // Format the IO error with a custom message
             SearchError::IoError(error) => write!(f, "IO error: {}", error),
             // Provide a custom message for the invalid search directory error
-            SearchError::InvalidSearchDir => write!(f, "Invalid search directory"),
+            SearchError::InvalidDir(msg) => write!(f, "Failed to read directory: {}", msg),
         }
     }
 }
@@ -175,27 +175,35 @@ impl FileSearchWorker {
 /// Recursively discovers directories and files within a given directory and adds jobs to the worklist.
 fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) -> Result<(), SearchError> {
     // Attempt to read the directory entries within the specified directory.
-    if let Ok(entries) = fs::read_dir(dir_path) {
-        // Iterate over each entry in the directory.
-        for entry in entries.flatten() {
-            let path = entry.path();
+    fs::read_dir(dir_path)
+        .map_err(|err| {
+            SearchError::InvalidDir(format!(
+                "Failed to read directory '{}': {}",
+                dir_path.display(),
+                err
+            ))
+        })
+        .and_then(|entries| {
+            // Iterate over each entry in the directory.
+            entries.par_bridge().try_for_each(|entry| {
+                let path = entry
+                    .map_err(|err| {
+                        SearchError::InvalidDir(format!("Failed to read directory entry: {}", err))
+                    })?
+                    .path();
 
-            // Check if the entry is a directory.
-            if path.is_dir() {
-                // Recursively explore subdirectories by calling `discover_dirs` function again.
-                discover_dirs(wl, &path)?;
-            } else {
-                // Add the file as a job to the worklist.
-                wl.add(Job::new(path));
-            }
-        }
-
-        // Return Ok to indicate successful discovery of directories and files.
-        Ok(())
-    } else {
-        // Return an error if reading the directory failed.
-        Err(SearchError::InvalidSearchDir)
-    }
+                // Check if the entry is a directory.
+                if path.is_dir() {
+                    // Recursively explore subdirectories in parallel using Rayon.
+                    let wl = Arc::clone(wl);
+                    discover_dirs(&wl, &path)
+                } else {
+                    // Add the file as a job to the worklist.
+                    wl.add(Job::new(path));
+                    Ok(())
+                }
+            })
+        })
 }
 
 /// Represents the command-line arguments for the program.
@@ -228,6 +236,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     thread::spawn(move || {
         if let Err(error) = discover_dirs(&worklist_clone, &args.search_dir) {
             eprintln!("Error discovering directories: {}", error);
+            if let Some(source) = error.source() {
+                eprintln!("Caused by: {}", source);
+            }
         }
         worklist_clone.finalize(num_workers);
     });
