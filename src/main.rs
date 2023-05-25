@@ -1,6 +1,5 @@
 use crossbeam_channel::{unbounded, Receiver, Sender}; // Import for creating communication channels between threads
 use rayon::prelude::*; // Import the necessary traits for parallel processing
-use rayon::ThreadPoolBuilder; // Import the ThreadPoolBuilder struct from the rayon crate
 use std::error::Error; // Import the Error trait for error handling
 use std::fs; // Import the fs module for file system operations
 use std::io::{BufRead, BufReader}; // Import the necessary traits for buffered reading
@@ -215,7 +214,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Cli::from_args();
 
     // Determine the number of worker threads
-    let num_workers = num_cpus::get();
+    let num_workers = num_cpus::get() - 1;
 
     // Create a shared worklist using `Arc`
     let worklist = Arc::new(Worklist::new());
@@ -232,23 +231,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         worklist_clone.finalize(num_workers);
     });
 
-    // Create a thread pool using `ThreadPoolBuilder` to process jobs in parallel
-    let thread_pool = ThreadPoolBuilder::new().num_threads(num_workers).build()?;
-
-    // Process jobs using worker threads within a thread pool scope
-    thread_pool.scope(|s| {
-        (0..num_workers).into_par_iter().for_each(|_| {
-            // Clone the necessary variables for each worker thread
-            let worklist_clone = Arc::clone(&worklist);
-            let results_clone = Arc::clone(&results);
-            let search_term_clone = args.search_term.clone();
-
-            // Spawn a thread for each worker and execute the `process_jobs` method
-            s.spawn(move |_| {
-                let worker = Worker::new(search_term_clone, worklist_clone, results_clone);
-                worker.process_jobs();
-            });
-        })
+    // Process jobs in parallel
+    (0..num_workers).into_par_iter().for_each(|_| {
+        // Clone the necessary variables for each worker thread
+        let worklist_clone = Arc::clone(&worklist);
+        let results_clone = Arc::clone(&results);
+        let search_term_clone = args.search_term.clone();
+        let worker = Worker::new(search_term_clone, worklist_clone, results_clone);
+        worker.process_jobs();
     });
 
     // Print the search results by locking the results list and iterating over the results
