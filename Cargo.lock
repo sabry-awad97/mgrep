@@ -156,6 +156,7 @@ dependencies = [
 name = "mgrep"
 version = "0.1.0"
 dependencies = [
+ "crossbeam-channel",
  "num_cpus",
  "rayon",
  "structopt",
