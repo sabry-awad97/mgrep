@@ -1,46 +1,21 @@
 use cli::Cli;
+use error::SearchError;
 use job::Job;
-use rayon::prelude::*; // Import the necessary traits for parallel processing
-use std::error::Error; // Import the Error trait for error handling
-use std::fs; // Import the fs module for file system operations
-use std::io::{BufRead, BufReader}; // Import the necessary traits for buffered reading
-use std::path::{Path, PathBuf}; // Import the necessary structs for working with file paths
-use std::sync::{Arc, Mutex}; // Import the necessary synchronization primitives
-use std::thread; // Import the thread module for multi-threading
-use structopt::StructOpt; // Import the StructOpt trait for command-line argument parsing
+
+use rayon::prelude::*;
+use std::error::Error;
+use std::fs;
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use structopt::StructOpt;
 use worklist::Worklist;
 
 mod cli;
+mod error;
 mod job;
 mod worklist;
-
-#[derive(Debug)]
-enum SearchError {
-    /// Represents an IO error
-    IoError(std::io::Error),
-    /// Represents an invalid search directory
-    InvalidDir(String),
-}
-
-impl From<std::io::Error> for SearchError {
-    // Convert std::io::Error to SearchError
-    fn from(error: std::io::Error) -> Self {
-        SearchError::IoError(error)
-    }
-}
-
-impl std::fmt::Display for SearchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            // Format the IO error with a custom message
-            SearchError::IoError(error) => write!(f, "IO error: {}", error),
-            // Provide a custom message for the invalid search directory error
-            SearchError::InvalidDir(msg) => write!(f, "Failed to read directory: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for SearchError {}
 
 /// Represents a search result for a specific line in a file.
 struct SearchResult {
