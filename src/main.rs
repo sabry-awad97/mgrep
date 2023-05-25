@@ -3,6 +3,7 @@ use error::SearchError;
 use job::Job;
 
 use rayon::prelude::*;
+use result::SearchResult;
 use std::error::Error;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -15,17 +16,8 @@ use worklist::Worklist;
 mod cli;
 mod error;
 mod job;
+mod result;
 mod worklist;
-
-/// Represents a search result for a specific line in a file.
-struct SearchResult {
-    // The path of the file containing the search result
-    path: PathBuf,
-    // The line number of the search result
-    line_number: usize,
-    // The actual line content of the search result
-    line: String,
-}
 
 /// Represents a worker responsible for searching a worklist of files for a given search term.
 struct FileSearchWorker {
@@ -73,14 +65,12 @@ impl FileSearchWorker {
             // Unwrap the line from the result, propagating any I/O errors.
             let line = line?;
 
+            // Add 1 to convert zero-based index to one-based line number.
+            let line_number = line_number + 1;
+
             // Check if the line contains the search term.
             if line.contains(&self.search_term) {
-                matching_lines.push(SearchResult {
-                    path: path.clone(),
-                    // Add 1 to convert zero-based index to one-based line number.
-                    line_number: line_number + 1,
-                    line: line.to_string(),
-                });
+                matching_lines.push(SearchResult::new(path.clone(), line_number, line));
             }
         }
 
@@ -182,12 +172,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Print the search results by locking the results list and iterating over the results
     let results = results.lock().unwrap();
     for result in &*results {
-        println!(
-            "{}[{}]: {}",
-            result.path.display(),
-            result.line_number,
-            result.line
-        );
+        result.display()
     }
 
     // Return `Ok` to indicate successful execution of the `main` function
