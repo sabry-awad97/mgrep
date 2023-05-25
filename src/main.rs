@@ -116,17 +116,17 @@ impl FileSearchWorker {
 
     /// Searches for the search term in the given file.
     /// Returns a vector of matching search results.
-    fn find_in_file(&self, path: &Path) -> Result<Vec<SearchResult>, SearchError> {
+    fn find_in_file(&self, path: PathBuf) -> Result<Vec<SearchResult>, SearchError> {
         if !path.exists() {
             // If the file doesn't exist, return an empty vector.
             return Ok(Vec::new());
         }
 
         // Attempt to open the file, and propagate any I/O errors.
-        let file = fs::File::open(path)?;
+        let file = fs::File::open(&path)?;
 
         // Create a buffered reader for efficient reading.
-        let reader = BufReader::new(file);
+        let reader = BufReader::with_capacity(8192, file);
 
         // Stores the search results found in the file.
         let mut matching_lines = Vec::new();
@@ -139,7 +139,7 @@ impl FileSearchWorker {
             // Check if the line contains the search term.
             if line.contains(&self.search_term) {
                 matching_lines.push(SearchResult {
-                    path: path.to_path_buf(),
+                    path: path.clone(),
                     // Add 1 to convert zero-based index to one-based line number.
                     line_number: line_number + 1,
                     line: line.to_string(),
@@ -156,7 +156,7 @@ impl FileSearchWorker {
         loop {
             let job = self.worklist.next();
             if let Some(job) = job {
-                match self.find_in_file(&job.path) {
+                match self.find_in_file(job.path) {
                     Ok(results) => {
                         let mut result_vec = self.results.lock().unwrap();
                         result_vec.extend(results);
@@ -212,6 +212,7 @@ struct Cli {
 fn main() -> Result<(), Box<dyn Error>> {
     // Parse command-line arguments using `Cli::from_args()`
     let args = Cli::from_args();
+    let search_term_ref = &args.search_term;
 
     // Determine the number of worker threads
     let num_workers = num_cpus::get() - 1;
@@ -236,8 +237,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Clone the necessary variables for each worker thread
         let worklist_clone = Arc::clone(&worklist);
         let results_clone = Arc::clone(&results);
-        let search_term_clone = args.search_term.clone();
-        let worker = FileSearchWorker::new(search_term_clone, worklist_clone, results_clone);
+        let worker =
+            FileSearchWorker::new(search_term_ref.to_string(), worklist_clone, results_clone);
         worker.process_jobs();
     });
 
