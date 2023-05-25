@@ -1,14 +1,15 @@
-use cli::Cli;
-use error::SearchError;
-use job::Job;
-
-use rayon::prelude::*;
 use std::error::Error;
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
+
+use rayon::prelude::*;
 use structopt::StructOpt;
+
+use cli::Cli;
+use error::SearchError;
+use job::Job;
 use worker::Worker;
 use worklist::Worklist;
 
