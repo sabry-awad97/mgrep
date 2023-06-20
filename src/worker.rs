@@ -5,7 +5,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use crate::error::SearchError;
 use crate::result::SearchResult;
 use crate::worklist::Worklist;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 
 pub struct Worker {
@@ -27,7 +27,11 @@ impl Worker {
         }
     }
 
-    async fn find_in_file(&self, path: PathBuf) -> Result<Vec<SearchResult>, SearchError> {
+    async fn find_in_file<P>(&self, path: P) -> Result<Vec<SearchResult>, SearchError>
+    where
+        P: AsRef<Path>,
+    {
+        let path = path.as_ref().to_owned();
         if !path.exists() {
             return Ok(Vec::new());
         }
@@ -53,15 +57,20 @@ impl Worker {
         loop {
             let job = self.worklist.next();
             if let Some(job) = job {
-                match self.find_in_file(job.into_inner()).await {
+                let path = job.as_path();
+                match self.find_in_file(path).await {
                     Ok(results) => {
                         if let Err(send_error) = self.result_sender.send(results) {
                             eprintln!("Error sending results: {}", send_error);
                             break;
                         }
                     }
-                    Err(error) => {
-                        eprintln!("Error processing job: {}", error);
+                    Err(_) => {
+                        if let Some(file_name) = path.file_name() {
+                            if let Some(name) = file_name.to_str() {
+                                eprintln!("Error Processing File {}", name);
+                            }
+                        }
                     }
                 }
             } else {

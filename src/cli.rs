@@ -8,6 +8,6 @@ pub struct Cli {
     pub search_term: String,
 
     /// The directory to search in
-    #[structopt(parse(from_os_str))]
+    #[structopt(parse(from_os_str), default_value = ".")]
     pub search_dir: PathBuf,
 }

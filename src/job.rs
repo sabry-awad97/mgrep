@@ -9,7 +9,7 @@ impl Job {
         Self { path }
     }
 
-    pub fn into_inner(self) -> PathBuf {
-        self.path
+    pub fn as_path(&self) -> &PathBuf {
+        &self.path
     }
 }
