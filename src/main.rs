@@ -62,10 +62,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let (result_sender, result_receiver) = unbounded();
         result_receivers.push(result_receiver);
         let worklist_clone = Arc::clone(&worklist);
-        let result_sender_clone = result_sender.clone();
         let search_term_clone = search_term.clone();
         let handle = tokio::spawn(async move {
-            let worker = Worker::new(search_term_clone, worklist_clone, result_sender_clone);
+            let worker = Worker::new(search_term_clone, worklist_clone, result_sender);
             worker.process_jobs().await;
         });
         worker_handles.push(handle);
