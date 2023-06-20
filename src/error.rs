@@ -19,7 +19,7 @@ impl std::fmt::Display for SearchError {
             // Format the IO error with a custom message
             SearchError::IoError(error) => write!(f, "IO error: {}", error),
             // Provide a custom message for the invalid search directory error
-            SearchError::InvalidDir(msg) => write!(f, "Failed to read directory: {}", msg),
+            SearchError::InvalidDir(path) => write!(f, "Failed to read directory: '{}'", path),
         }
     }
 }

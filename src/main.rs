@@ -22,13 +22,9 @@ mod worklist;
 
 #[async_recursion]
 async fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) -> Result<(), SearchError> {
-    let mut entries = fs::read_dir(dir_path).await.map_err(|err| {
-        SearchError::InvalidDir(format!(
-            "Failed to read directory '{}': {}",
-            dir_path.display(),
-            err
-        ))
-    })?;
+    let mut entries = fs::read_dir(dir_path)
+        .await
+        .map_err(|_| SearchError::InvalidDir(dir_path.display().to_string()))?;
 
     let mut tasks = Vec::new();
     while let Some(entry) = entries.next_entry().await? {
@@ -71,7 +67,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let worklist_clone = Arc::clone(&worklist);
     tokio::spawn(async move {
         if let Err(error) = discover_dirs(&worklist_clone, &args.search_dir).await {
-            eprintln!("Error discovering directories: {}", error);
+            eprintln!("{}", error);
             if let Some(source) = error.source() {
                 eprintln!("Caused by: {}", source);
             }
