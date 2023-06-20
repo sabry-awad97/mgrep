@@ -55,7 +55,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let worklist = Arc::new(Worklist::new());
 
-    let (result_sender, result_receiver) = unbounded();
+    let mut result_receivers = Vec::new();
+
+    let mut worker_handles = Vec::new();
+    for _ in 0..num_workers {
+        let (result_sender, result_receiver) = unbounded();
+        result_receivers.push(result_receiver);
+        let worklist_clone = Arc::clone(&worklist);
+        let result_sender_clone = result_sender.clone();
+        let search_term_clone = search_term.clone();
+        let handle = tokio::spawn(async move {
+            let worker = Worker::new(search_term_clone, worklist_clone, result_sender_clone);
+            worker.process_jobs().await;
+        });
+        worker_handles.push(handle);
+    }
 
     let worklist_clone = Arc::clone(&worklist);
     tokio::spawn(async move {
@@ -68,36 +82,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
         worklist_clone.finalize(num_workers);
     });
 
-    let mut worker_handles = Vec::new();
-    for _ in 0..num_workers {
-        let worklist_clone = Arc::clone(&worklist);
-        let result_sender_clone = result_sender.clone();
-        let search_term_clone = search_term.clone();
-        let handle = tokio::spawn(async move {
-            let worker = Worker::new(search_term_clone, worklist_clone, result_sender_clone);
-            worker.process_jobs().await;
-        });
-        worker_handles.push(handle);
-    }
-
     for handle in worker_handles {
         handle.await?;
     }
 
     let mut results = Vec::new();
 
-    loop {
-        match result_receiver.try_recv() {
-            Ok(result_batch) => {
-                results.extend(result_batch);
-            }
-            Err(TryRecvError::Empty) => {
-                // println!("No more results available.");
-                break;
-            }
-            Err(TryRecvError::Disconnected) => {
-                // println!("The result channel has been closed.");
-                break;
+    for result_receiver in result_receivers {
+        loop {
+            match result_receiver.try_recv() {
+                Ok(result_batch) => {
+                    results.extend(result_batch);
+                }
+                Err(TryRecvError::Empty) => {
+                    // println!("No more results available.");
+                    break;
+                }
+                Err(TryRecvError::Disconnected) => {
+                    // println!("The result channel has been closed.");
+                    break;
+                }
             }
         }
     }
