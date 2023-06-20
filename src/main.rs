@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::fs;
 
 use structopt::StructOpt;
@@ -9,6 +9,7 @@ use async_recursion::async_recursion;
 use cli::Cli;
 use error::SearchError;
 use job::Job;
+use tokio::sync::Mutex;
 use worker::Worker;
 use worklist::Worklist;
 
@@ -94,7 +95,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         handle.await?;
     }
 
-    let results = results.lock().unwrap();
+    let results = results.lock().await;
     for result in &*results {
         result.display()
     }

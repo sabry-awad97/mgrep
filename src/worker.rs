@@ -1,11 +1,12 @@
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::sync::Mutex;
 
 use crate::error::SearchError;
 use crate::result::SearchResult;
 use crate::worklist::Worklist;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub struct Worker {
     search_term: String,
@@ -54,7 +55,7 @@ impl Worker {
             if let Some(job) = job {
                 match self.find_in_file(job.into_inner()).await {
                     Ok(results) => {
-                        let mut result_vec = self.results.lock().unwrap();
+                        let mut result_vec = self.results.lock().await;
                         result_vec.extend(results);
                     }
                     Err(error) => {
