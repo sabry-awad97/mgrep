@@ -1,15 +1,13 @@
+use async_recursion::async_recursion;
+use cli::Cli;
+use crossbeam::channel::unbounded;
+use error::SearchError;
+use job::Job;
 use std::error::Error;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::fs;
-
 use structopt::StructOpt;
-
-use async_recursion::async_recursion;
-use cli::Cli;
-use error::SearchError;
-use job::Job;
-use tokio::sync::Mutex;
+use tokio::fs;
 use worker::Worker;
 use worklist::Worklist;
 
@@ -50,20 +48,15 @@ async fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) -> Result<(), Search
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    // Parse command-line arguments using `Cli::from_args()`
     let args = Cli::from_args();
     let search_term = args.search_term.clone();
 
-    // Determine the number of worker threads
     let num_workers = num_cpus::get() - 1;
 
-    // Create a shared worklist using `Arc`
     let worklist = Arc::new(Worklist::new());
 
-    // Create a shared results list using `Arc` and `Mutex`
-    let results = Arc::new(Mutex::new(Vec::new()));
+    let (result_sender, result_receiver) = unbounded();
 
-    // Spawn a separate thread to discover directories and add jobs to the worklist
     let worklist_clone = Arc::clone(&worklist);
     tokio::spawn(async move {
         if let Err(error) = discover_dirs(&worklist_clone, &args.search_dir).await {
@@ -78,10 +71,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut worker_handles = Vec::new();
     for _ in 0..num_workers {
         let worklist_clone = Arc::clone(&worklist);
-        let results_clone = Arc::clone(&results);
+        let result_sender_clone = result_sender.clone();
         let search_term_clone = search_term.clone();
         let handle = tokio::spawn(async move {
-            let worker = Worker::new(search_term_clone, worklist_clone, results_clone);
+            let worker = Worker::new(search_term_clone, worklist_clone, result_sender_clone);
             worker.process_jobs().await;
         });
         worker_handles.push(handle);
@@ -91,9 +84,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         handle.await?;
     }
 
-    let results = results.lock().await;
-    for result in &*results {
-        result.display()
+    while let Ok(results) = result_receiver.try_recv() {
+        for result in results {
+            result.display()
+        }
     }
+
     Ok(())
 }

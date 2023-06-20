@@ -1,6 +1,6 @@
+use crossbeam::channel::Sender;
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::Mutex;
 
 use crate::error::SearchError;
 use crate::result::SearchResult;
@@ -11,19 +11,19 @@ use std::sync::Arc;
 pub struct Worker {
     search_term: String,
     worklist: Arc<Worklist>,
-    results: Arc<Mutex<Vec<SearchResult>>>,
+    result_sender: Sender<Vec<SearchResult>>,
 }
 
 impl Worker {
     pub fn new(
         search_term: String,
         worklist: Arc<Worklist>,
-        results: Arc<Mutex<Vec<SearchResult>>>,
+        result_sender: Sender<Vec<SearchResult>>,
     ) -> Self {
         Self {
             search_term,
             worklist,
-            results,
+            result_sender,
         }
     }
 
@@ -55,8 +55,9 @@ impl Worker {
             if let Some(job) = job {
                 match self.find_in_file(job.into_inner()).await {
                     Ok(results) => {
-                        let mut result_vec = self.results.lock().await;
-                        result_vec.extend(results);
+                        if let Err(send_error) = self.result_sender.send(results) {
+                            eprintln!("Error sending results: {}", send_error);
+                        }
                     }
                     Err(error) => {
                         eprintln!("Error processing job: {}", error);
