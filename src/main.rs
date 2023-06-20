@@ -1,12 +1,11 @@
 use std::error::Error;
-use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::thread;
+use tokio::fs;
 
-use rayon::prelude::*;
 use structopt::StructOpt;
 
+use async_recursion::async_recursion;
 use cli::Cli;
 use error::SearchError;
 use job::Job;
@@ -20,44 +19,43 @@ mod result;
 mod worker;
 mod worklist;
 
-/// Recursively discovers directories and files within a given directory and adds jobs to the worklist.
-fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) -> Result<(), SearchError> {
-    // Attempt to read the directory entries within the specified directory.
-    fs::read_dir(dir_path)
-        .map_err(|err| {
-            SearchError::InvalidDir(format!(
-                "Failed to read directory '{}': {}",
-                dir_path.display(),
-                err
-            ))
-        })
-        .and_then(|entries| {
-            // Iterate over each entry in the directory.
-            entries.par_bridge().try_for_each(|entry| {
-                let path = entry
-                    .map_err(|err| {
-                        SearchError::InvalidDir(format!("Failed to read directory entry: {}", err))
-                    })?
-                    .path();
+#[async_recursion]
+async fn discover_dirs(wl: &Arc<Worklist>, dir_path: &Path) -> Result<(), SearchError> {
+    let mut entries = fs::read_dir(dir_path).await.map_err(|err| {
+        SearchError::InvalidDir(format!(
+            "Failed to read directory '{}': {}",
+            dir_path.display(),
+            err
+        ))
+    })?;
 
-                // Check if the entry is a directory.
-                if path.is_dir() {
-                    // Recursively explore subdirectories in parallel using Rayon.
-                    let wl = Arc::clone(wl);
-                    discover_dirs(&wl, &path)
-                } else {
-                    // Add the file as a job to the worklist.
-                    wl.add(Job::new(path));
-                    Ok(())
-                }
-            })
-        })
+    let mut tasks = Vec::new();
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if path.is_dir() {
+            let task = async {
+                let path = Arc::new(path);
+                let wl_clone = Arc::clone(wl);
+                let path_clone = Arc::new(path.clone());
+                discover_dirs(&wl_clone, &path_clone).await?;
+                Ok::<(), SearchError>(())
+            };
+            tasks.push(task);
+        } else {
+            wl.add(Job::new(path));
+        }
+    }
+    for task in tasks {
+        task.await?;
+    }
+    Ok(())
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
     // Parse command-line arguments using `Cli::from_args()`
     let args = Cli::from_args();
-    let search_term_ref = &args.search_term;
+    let search_term = args.search_term.clone();
 
     // Determine the number of worker threads
     let num_workers = num_cpus::get() - 1;
@@ -70,8 +68,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Spawn a separate thread to discover directories and add jobs to the worklist
     let worklist_clone = Arc::clone(&worklist);
-    thread::spawn(move || {
-        if let Err(error) = discover_dirs(&worklist_clone, &args.search_dir) {
+    tokio::spawn(async move {
+        if let Err(error) = discover_dirs(&worklist_clone, &args.search_dir).await {
             eprintln!("Error discovering directories: {}", error);
             if let Some(source) = error.source() {
                 eprintln!("Caused by: {}", source);
@@ -80,21 +78,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         worklist_clone.finalize(num_workers);
     });
 
-    // Process jobs in parallel
-    (0..num_workers).into_par_iter().for_each(|_| {
-        // Clone the necessary variables for each worker thread
+    let mut worker_handles = Vec::new();
+    for _ in 0..num_workers {
         let worklist_clone = Arc::clone(&worklist);
         let results_clone = Arc::clone(&results);
-        let worker = Worker::new(search_term_ref.to_string(), worklist_clone, results_clone);
-        worker.process_jobs();
-    });
+        let search_term_clone = search_term.clone();
+        let handle = tokio::spawn(async move {
+            let worker = Worker::new(search_term_clone, worklist_clone, results_clone);
+            worker.process_jobs().await;
+        });
+        worker_handles.push(handle);
+    }
 
-    // Print the search results by locking the results list and iterating over the results
+    for handle in worker_handles {
+        handle.await?;
+    }
+
     let results = results.lock().unwrap();
     for result in &*results {
         result.display()
     }
-
-    // Return `Ok` to indicate successful execution of the `main` function
     Ok(())
 }
