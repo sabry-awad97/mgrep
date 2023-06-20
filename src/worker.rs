@@ -57,6 +57,7 @@ impl Worker {
                     Ok(results) => {
                         if let Err(send_error) = self.result_sender.send(results) {
                             eprintln!("Error sending results: {}", send_error);
+                            break;
                         }
                     }
                     Err(error) => {

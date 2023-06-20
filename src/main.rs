@@ -1,6 +1,6 @@
 use async_recursion::async_recursion;
 use cli::Cli;
-use crossbeam::channel::unbounded;
+use crossbeam::channel::{unbounded, TryRecvError};
 use error::SearchError;
 use job::Job;
 use std::error::Error;
@@ -84,10 +84,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
         handle.await?;
     }
 
-    while let Ok(results) = result_receiver.try_recv() {
-        for result in results {
-            result.display()
+    let mut results = Vec::new();
+
+    loop {
+        match result_receiver.try_recv() {
+            Ok(result_batch) => {
+                results.extend(result_batch);
+            }
+            Err(TryRecvError::Empty) => {
+                // println!("No more results available.");
+                break;
+            }
+            Err(TryRecvError::Disconnected) => {
+                // println!("The result channel has been closed.");
+                break;
+            }
         }
+    }
+
+    for result in results {
+        result.display();
     }
 
     Ok(())
